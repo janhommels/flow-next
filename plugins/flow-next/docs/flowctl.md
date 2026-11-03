@@ -100,7 +100,7 @@ CLI for `.flow/` task tracking. Agents must use flowctl for all writes.
 ## Available Commands
 
 ```
-init, setup-block, detect, status, config, tracker, sync, pilot, pilot-log, review-backend, review-findings, models, review-rounds, review-artifact,
+init, setup-block, detect, status, config, tracker, sync, forge, pilot, pilot-log, review-backend, review-findings, models, review-rounds, review-artifact,
 memory, prospect, chart, anchor, repo-map, prime, glossary, strategy, criteria, spec, scope, task, dep,
 show, specs, tasks, list, cat, ready, next, start, done, block, validate, trace, triage-skip, gate,
 checkpoint, codex, copilot, cursor, claude,
@@ -943,6 +943,34 @@ Consumers keep their stage-specific fail-open/default behavior.
 `setup-status` gathers setup's read-only probes and recorded optional answers.
 Missing or unreadable setup state is a first run. Setup remembers declined
 optional questions so a steady re-run needs no repeated answers.
+
+### forge
+
+```bash
+flowctl forge detect [--json]
+flowctl forge mr-list [--head <branch>] [--number <iid>] [--state open|merged|closed|all] [--limit N] --json
+flowctl forge mr-create --title <t> --body-file <f> --base <target> --head <source> [--draft]
+flowctl forge mr-update <iid> --body-file <f>
+```
+
+`forge detect` reads the forge from `origin` on every call and stores nothing:
+`github` for github.com or a host `gh` is logged in to, `gitlab` for gitlab.com
+or a host `glab` is logged in to, otherwise `null` (`none` without `--json`).
+An SSH host alias resolves through `ssh -G` first. The JSON carries `host` and
+the `project` path. make-pr, `judge --preset route` and `pilot snapshot` all
+use this one rule.
+
+The `mr-*` verbs work only on a GitLab origin and go through `glab api`.
+`mr-list` returns the project's own merge requests (not forks) as `prs` rows
+with gh's field names: `number` (the iid), `url`, `state` (`OPEN` for opened
+or locked, `MERGED`, else `CLOSED`), `headRefName`, `baseRefName`,
+`headRefOid`, `mergedAt`, `isDraft` and `mergeCommit`. A glab failure exits
+non-zero rather than reporting no merge requests. The route and pilot probes
+treat a GitLab origin without `glab` installed as one with no merge requests;
+make-pr then stops and names the install. `mr-create` takes
+`gh pr create`'s arguments, prefixes the title with `Draft:` for `--draft`, and
+prints the merge request URL; `mr-update` replaces the description and prints
+the URL.
 
 ### ready
 

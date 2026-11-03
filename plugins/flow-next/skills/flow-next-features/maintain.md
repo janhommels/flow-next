@@ -240,16 +240,18 @@ At least one proven map or owned-harness correction, provenance refresh, or reti
 2. **Re-fetch and re-verify the base first**: fetch `origin/<default>` again and compare `git rev-parse origin/<default>` against the entry-recorded base revision (`$RUN_DIR/entry_base`) - a revision comparison only, never a working-tree diff: the run's own map and harness edits are dirty by design at this point, and the entry gate already proved the tree matched the base it recorded. A base that advanced during the source/live passes means the proofs no longer describe the code the PR will be reviewed against; end `BLOCKED` naming the moved base (re-run maintain from the updated checkout). Then create a **fresh branch**, named per the entry gate's ship names (default when the repo states no rules: `chore/features-maintain-<YYYY-MM-DD>-<run-id>`, where the preamble's `$RUN_ID` keeps a second same-day pass collision-free locally and on the remote; a name the repo's rules dictate must not already exist locally or on the remote), from `origin/<default>` (both gates just proved the checkout matches it, so the proofs gathered this run apply to exactly the code this PR ships on; the uncommitted map/harness edits ride the switch). If the switch conflicts with local state, end `BLOCKED` naming the conflict instead of shipping a mixed PR.
 3. If the repo runs a formatter over markdown (pre-commit hook, `biome`, `oxfmt`, `prettier`), run it over the edited owned paths first — a pre-commit hook that rewrites the files mid-commit ships a diff nobody re-read, or forces a formatter-artifact follow-up commit. Re-read anything the formatter changed.
 4. Stage **only** `.flow/features/**`, the owned harness files that were re-driven, and the memory files of the drift notes Phase 5 retired. Never `$RUN_DIR`, never run notes, never scratch, never evidence. Never `git add -A`.
-5. Commit (message per the entry gate's ship names; default `chore(features): maintain pass`), **push the branch with upstream tracking** (`git push -u origin <branch>` - `gh pr create` on an unpushed branch prompts, and a prompt in a non-interactive shell wedges the run), then open **one chore PR** directly through make-pr's create seam, which a non-GitHub host replaces with a command taking the same arguments and printing the PR URL:
+5. Commit (message per the entry gate's ship names; default `chore(features): maintain pass`), **push the branch with upstream tracking** (`git push -u origin <branch>` - `gh pr create` on an unpushed branch prompts, and a prompt in a non-interactive shell wedges the run), then open **one chore PR** directly through make-pr's create seam, which a GitLab origin fills with `$FLOWCTL forge mr-create` (a merge request) and any other host replaces with a command taking the same arguments and printing the PR URL:
 
 ```bash
-PR_OUT="$(${FLOW_PR_CREATE_CMD:-gh pr create} --title "<commit message>" --body-file "$PR_BODY" --base "<default>" --head "<branch>")"
-printf '%s\n' "$PR_OUT" | grep -Eo 'https://[^[:space:]]+/pull/[0-9]+' | tail -n1
+PR_CREATE_CMD="${FLOW_PR_CREATE_CMD:-gh pr create}"
+if [ -z "${FLOW_PR_CREATE_CMD:-}" ] && [ "$("$FLOWCTL" forge detect 2>/dev/null)" = gitlab ]; then PR_CREATE_CMD="$FLOWCTL forge mr-create"; fi
+PR_OUT="$($PR_CREATE_CMD --title "<commit message>" --body-file "$PR_BODY" --base "<default>" --head "<branch>")"
+printf '%s\n' "$PR_OUT" | grep -Eo 'https?://[^[:space:]]+/(pull|-/merge_requests)/[0-9]+' | tail -n1
 ```
 
 A create call that exits 0 without printing a PR URL did not open a PR: treat it as a failed PR create.
 
-When no create command can reach this host (not GitHub, and `FLOW_PR_CREATE_CMD` unset), stop after the push: the outcome is `CHANGED` with a `reason` naming the pushed branch and saying the PR was not opened. When the user asked at invocation for less (commit only, or leave the edits uncommitted), stop there instead: `CHANGED`, with a `reason` naming the local branch, or the working-tree files to stage.
+When no create command can reach this host (neither GitHub nor GitLab, and `FLOW_PR_CREATE_CMD` unset), stop after the push: the outcome is `CHANGED` with a `reason` naming the pushed branch and saying the PR was not opened. When the user asked at invocation for less (commit only, or leave the edits uncommitted), stop there instead: `CHANGED`, with a `reason` naming the local branch, or the working-tree files to stage.
 
 Write `$PR_BODY` to a file under `$RUN_DIR` (or a tempfile). Use a hand-written chore body with these four sections in order:
 

@@ -10,12 +10,12 @@ Four steps, in order. Each one is recorded (see "Record" below), including when 
 
 Look for existing work on this defect in the affected area (the files the symptom runs through):
 
-- open pull requests and branches that change those files (`gh pr list --state open`, `git log <base>..<branch> -- <paths>`);
+- open pull requests and branches that change those files (`gh pr list --state open`, or `glab mr list` when `flowctl forge detect` reports `gitlab`; `git log <base>..<branch> -- <paths>`);
 - recent commits and reverts on those files (`git log -- <paths>`, including `Revert` subjects);
 - the memory bug track (`flowctl memory search "<symptom>" --track bug`);
 - tracker issues describing the same symptom (`gh issue list --search "<symptom>"`, or the configured tracker).
 
-A source you cannot reach (no network, no `gh` auth, no tracker) is recorded as unchecked with the reason, and the route continues on the rest.
+A source you cannot reach (no network, no `gh` or `glab` auth, no tracker) is recorded as unchecked with the reason, and the route continues on the rest.
 
 - **An existing fix** (an open PR, a branch, or an unmerged commit that already changes the failing path): run the reproduction against it in a temporary worktree, record the result, and stop. Never write a competing fix.
 - **A person visibly owns an in-flight fix** (their open PR, an assigned issue with recent activity): stop and hand back.

@@ -73,6 +73,44 @@ esac''',
         self.assertNotIn("pr create", calls)
         self.assertIn("RESULT=https://example.com/project/pull/8", result.stdout)
 
+    def gitlab_flowctl(self):
+        # A GitLab origin: merge requests go through flowctl forge, never gh.
+        (self.bin / "flowctl").write_text('''#!/usr/bin/env bash
+printf 'flowctl %s\\n' "$*" >> "$CALLS"
+case "$1 $2" in
+"forge detect") echo '{"forge": "gitlab", "host": "gitlab.example.com"}' ;;
+"forge mr-create") echo https://gitlab.example.com/group/proj/-/merge_requests/12 ;;
+"forge mr-list") echo '{"prs": [{"number": 11, "state": "OPEN"}]}' ;;
+"forge mr-update") echo https://gitlab.example.com/group/proj/-/merge_requests/11 ;;
+*) echo '{"active": false}' ;;
+esac
+''')
+
+    def test_gitlab_create_opens_a_merge_request(self):
+        self.gitlab_flowctl()
+        result = self.run_script(UPDATE_MODE="0", DRAFT_FORCE="draft")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("RESULT=https://gitlab.example.com/group/proj/-/merge_requests/12", result.stdout)
+        calls = (self.root / "calls").read_text()
+        self.assertIn("flowctl forge mr-create --title Title --body-file", calls)
+        self.assertIn("--draft --base main --head feature", calls)
+        self.assertNotIn("\npr ", "\n" + calls)  # gh never ran
+
+    def test_gitlab_update_replaces_the_description(self):
+        self.gitlab_flowctl()
+        result = self.run_script(UPDATE_MODE="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.root / "calls").read_text()
+        self.assertIn("flowctl forge mr-update 11 --body-file", calls)
+        self.assertNotIn("mr-create", calls)
+        self.assertIn("RESULT=https://gitlab.example.com/group/proj/-/merge_requests/11", result.stdout)
+
+    def test_gitlab_create_failure_exits_nonzero_with_the_error(self):
+        self.gitlab_flowctl()
+        result = self.run_script(UPDATE_MODE="0", FLOW_PR_CREATE_CMD="echo 'Error: 409 Conflict' >&2; false")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("409 Conflict", result.stderr)
+
     def test_changed_closed_head_never_pushes(self):
         result = self.run_script(PHASE0_CONTEXT=json.dumps({"spec_closed": True, "head": "old", "branch": "feature"}))
         self.assertEqual(result.returncode, 1)

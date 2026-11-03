@@ -12,6 +12,8 @@ git -C <tmp-dir> bisect reset
 git worktree remove <tmp-dir>
 ```
 
-Read the introducing commit and the pull request that carried it (`gh pr list --state merged --search <sha>`). Its intent feeds the fix design, and the commit is cited in the diagnosis.
+Read the introducing commit and the pull request that carried it (`gh pr list --state merged --search <sha>`; on a GitLab origin,
+`glab api "projects/:id/repository/commits/<sha>/merge_requests"`). A lookup that fails is recorded
+as unchecked, not a stop. Its intent feeds the fix design, and the commit is cited in the diagnosis.
 
 Skip this step, and record why, when there is no known-good revision, no bisectable history (a new repository, a squashed import, a shallow clone), or no reproduction cheap enough to run once per revision.

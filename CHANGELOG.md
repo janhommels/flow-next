@@ -6,6 +6,10 @@ Flow-Next changed shape with 5.0.0. One command, `/flow-next:flow`, reads whatev
 
 ## Unreleased
 
+### Added
+
+- **make-pr opens GitLab merge requests.** On a repository whose `origin` is gitlab.com or a self-managed GitLab host `glab` is logged in to, make-pr pushes the branch and opens or updates a merge request through `glab`. The merge request gets the same briefing body a pull request gets. `flow --auto` and `judge --preset route` see those merge requests, so an unattended run ends at an open merge request. The forge is read from `origin` on every run, with no new config key, and GitHub repositories behave as before. Resolving merge request discussions and landing merge requests come later (#462).
+
 ## [flow-next 9.5.1] - 2026-11-02
 
 Fixes for papercuts users reported in review, delivery and capture.

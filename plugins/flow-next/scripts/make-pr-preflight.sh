@@ -3,23 +3,28 @@
 set -e
 # Windows jq.exe ends lines with CRLF; drop the CR so values match paths and compare equal (#541).
 jq() { command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; }
+# The forge is origin's host: GitHub pull requests through gh, GitLab merge requests through glab.
+FORGE_JSON=$(cd "$REPO_ROOT" && "$FLOWCTL" forge detect --json 2>/dev/null) || FORGE_JSON='{}'
+FORGE=$(printf '%s' "$FORGE_JSON" | jq -r '.forge // empty' 2>/dev/null) || FORGE=""
+ORIGIN_HOST=$(printf '%s' "$FORGE_JSON" | jq -r '.host // empty' 2>/dev/null) || ORIGIN_HOST=""
+# GitLab merge requests for a source branch, in gh's PR row shape.
+forge_mrs() { local out; out=$(cd "$REPO_ROOT" && "$FLOWCTL" forge mr-list --head "$1" --state "$2" --json) || return 1; printf '%s' "$out" | jq -c '.prs'; }
 if [[ "$DRY_RUN" != "1" ]]; then
-  # make-pr opens GitHub pull requests; an origin elsewhere (GitLab) stops before
-  # any close or push (#583). An SSH host alias resolves through ssh -G, as in gh.
-  ORIGIN_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null) || ORIGIN_URL=""
-  ORIGIN_HOST=$(printf '%s' "$ORIGIN_URL" | sed -E 's#^[a-z+]+://([^@/]*@)?([^/:]+).*#\2#; s#^([^@/]*@)?([^/:]+):.*#\2#')
-  if [[ "$ORIGIN_URL" != *://* || "$ORIGIN_URL" == ssh://* ]]; then
-    SSH_HOST=$(ssh -G "$ORIGIN_HOST" 2>/dev/null | awk '/^hostname /{print $2; exit}') || SSH_HOST=""
-    [[ -z "$SSH_HOST" ]] || ORIGIN_HOST="$SSH_HOST"
+  # An origin neither forge recognises stops before any close or push.
+  if [[ -z "$FORGE" ]]; then
+    echo "NEEDS_HUMAN: make-pr opens GitHub pull requests and GitLab merge requests only; origin host ${ORIGIN_HOST:-none} is not github.com, gitlab.com, or a host gh or glab is logged in to. Open it by hand, or run gh auth login --hostname ${ORIGIN_HOST:-<host>} (GitHub Enterprise) or glab auth login --hostname ${ORIGIN_HOST:-<host>} (self-managed GitLab)." >&2; exit 2; fi
+  if [[ "$FORGE" == gitlab ]]; then
+    if ! command -v glab >/dev/null 2>&1; then
+      echo "Error: glab CLI not installed. Install glab from https://gitlab.com/gitlab-org/cli then run glab auth login --hostname $ORIGIN_HOST." >&2; exit 1; fi
+    if ! glab auth status --hostname "$ORIGIN_HOST" >/dev/null 2>&1; then
+      echo "Error: glab CLI not authenticated for $ORIGIN_HOST; run glab auth login --hostname $ORIGIN_HOST." >&2; exit 1; fi
+  else
+    if ! command -v gh >/dev/null 2>&1; then
+      echo "Error: gh CLI not installed. Install gh from https://cli.github.com then run gh auth login." >&2; exit 1; fi
+    # github.com first; otherwise any logged-in host, since later gh calls pick the host from the remote (GitHub Enterprise, #532).
+    if ! gh auth status --hostname github.com >/dev/null 2>&1 && ! gh auth status >/dev/null 2>&1; then
+      echo "Error: gh CLI not authenticated; run gh auth status to see which host needs gh auth login." >&2; exit 1; fi
   fi
-  if [[ "$ORIGIN_HOST" != github.com && "$ORIGIN_HOST" != ssh.github.com ]] \
-    && ! { command -v gh >/dev/null 2>&1 && gh auth token --hostname "$ORIGIN_HOST" >/dev/null 2>&1; }; then
-    echo "NEEDS_HUMAN: make-pr opens GitHub pull requests only; origin host ${ORIGIN_HOST:-none} is not github.com or a host gh is logged in to. Open the merge request by hand, or run gh auth login --hostname ${ORIGIN_HOST:-<host>} for GitHub Enterprise." >&2; exit 2; fi
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "Error: gh CLI not installed. Install gh from https://cli.github.com then run gh auth login." >&2; exit 1; fi
-  # github.com first; otherwise any logged-in host, since later gh calls pick the host from the remote (GitHub Enterprise, #532).
-  if ! gh auth status --hostname github.com >/dev/null 2>&1 && ! gh auth status >/dev/null 2>&1; then
-    echo "Error: gh CLI not authenticated; run gh auth status to see which host needs gh auth login." >&2; exit 1; fi
 fi
 # end:block
 # fence:chain-detect — inputs: REPO_ROOT, FLOWCTL, SPEC_ID, BASE_REF, DRY_RUN
@@ -59,7 +64,9 @@ if [[ -z "$BASE_REF" && -n "$CHAIN_BASE" ]]; then
     [[ -z "$DEP_BRANCH" ]] && continue
     DEP_REF=""
     if git -C "$REPO_ROOT" fetch -q origin "refs/heads/${DEP_BRANCH}:refs/remotes/origin/${DEP_BRANCH}" 2>/dev/null; then DEP_REF="refs/remotes/origin/$DEP_BRANCH"; fi
-    if DEP_PR_LIST=$(gh pr list --head "$DEP_BRANCH" --state all --json number,state,baseRefName 2>/dev/null); then
+    DEP_PR_CMD=(gh pr list --head "$DEP_BRANCH" --state all --json number,state,baseRefName)
+    [[ "$FORGE" != gitlab ]] || DEP_PR_CMD=(forge_mrs "$DEP_BRANCH" all)
+    if DEP_PR_LIST=$("${DEP_PR_CMD[@]}" 2>/dev/null); then
       DEP_PR_JSON=$(printf '%s' "$DEP_PR_LIST" | jq -c '(map(select(.state=="OPEN")) + map(select(.state=="MERGED")) + map(select(.state=="CLOSED"))) | .[0] // empty')
     elif [[ "$DRY_RUN" == "1" ]]; then
       echo "Note: cannot read the PR state of $DEP_BRANCH under --dry-run; treating parent $DEP as open." >&2
@@ -72,7 +79,9 @@ if [[ -z "$BASE_REF" && -n "$CHAIN_BASE" ]]; then
     DEP_PR_NUMBER=$(printf '%s' "$DEP_PR_JSON" | jq -r '.number // empty')
     if [[ "$DEP_PR_STATE" == "MERGED" && "$(printf '%s' "$DEP_PR_JSON" | jq -r '.baseRefName // empty')" == "$(git -C "$REPO_ROOT" branch --show-current)" ]]; then continue; fi
     if [[ -z "$DEP_REF" && "$DEP_PR_STATE" == "MERGED" ]]; then
-      if git -C "$REPO_ROOT" fetch -q origin "refs/pull/$DEP_PR_NUMBER/head:refs/flow-next/parent/$DEP_BRANCH" 2>/dev/null; then
+      PARENT_HEAD_REF="refs/pull/$DEP_PR_NUMBER/head"
+      [[ "$FORGE" != gitlab ]] || PARENT_HEAD_REF="refs/merge-requests/$DEP_PR_NUMBER/head"
+      if git -C "$REPO_ROOT" fetch -q origin "${PARENT_HEAD_REF}:refs/flow-next/parent/$DEP_BRANCH" 2>/dev/null; then
         DEP_REF="refs/flow-next/parent/$DEP_BRANCH"
       else
         echo "NEEDS_HUMAN: cannot establish the chain boundary for $DEP; parent history unreachable" >&2
@@ -163,7 +172,11 @@ if [[ "$REVIEW_PENDING" == "true" && "$OPEN_COUNT" -eq 0 && "$(printf '%s' "$SPE
   fi
   echo "Note: completion review for $SPEC_ID reads $REVIEW_STATUS; the spec remains open and is not closed. Opening as a DRAFT. Once /flow-next:spec-completion-review $SPEC_ID passes, run /flow-next:make-pr $SPEC_ID --update to close the spec, then mark the PR ready." >&2
 fi
-EXISTING_JSON=$(gh pr view --json url,state,number 2>/dev/null | jq -c 'select(.state == "OPEN")' || true)
+if [[ "$FORGE" == gitlab ]]; then
+  EXISTING_JSON=$(forge_mrs "$(git -C "$REPO_ROOT" branch --show-current)" open 2>/dev/null | jq -c '.[0] // empty | select(.state == "OPEN")' || true)
+else
+  EXISTING_JSON=$(gh pr view --json url,state,number 2>/dev/null | jq -c 'select(.state == "OPEN")' || true)
+fi
 EXISTING=$(printf '%s' "$EXISTING_JSON" | jq -r '.url // empty' 2>/dev/null || true)
 UPDATE_PR_NUMBER=$(printf '%s' "$EXISTING_JSON" | jq -r '.number // empty' 2>/dev/null || true)
 if [[ "${UPDATE_MODE:-0}" == "1" ]]; then
@@ -180,7 +193,11 @@ if [[ "${CHAIN_REWRITE:-0}" == "1" ]]; then
   if [[ "$DRY_RUN" == "1" ]]; then
     echo "would rebase $HEAD_BRANCH onto ${REWRITE_ONTO#origin/} from $CHAIN_BOUNDARY" >&2
   elif [[ "${UPDATE_MODE:-0}" != "1" ]]; then
-    PRIOR_PRS=$(gh pr list --head "$HEAD_BRANCH" --state all --json number,state --jq '[.[] | select(.state=="OPEN" or .state=="MERGED")] | length' 2>/dev/null) || PRIOR_PRS=""
+    if [[ "$FORGE" == gitlab ]]; then
+      PRIOR_PRS=$(forge_mrs "$HEAD_BRANCH" all 2>/dev/null | jq '[.[] | select(.state=="OPEN" or .state=="MERGED")] | length') || PRIOR_PRS=""
+    else
+      PRIOR_PRS=$(gh pr list --head "$HEAD_BRANCH" --state all --json number,state --jq '[.[] | select(.state=="OPEN" or .state=="MERGED")] | length' 2>/dev/null) || PRIOR_PRS=""
+    fi
     [[ "$PRIOR_PRS" == "0" ]] || { echo "NEEDS_HUMAN: $HEAD_BRANCH already has an open or merged PR, or the probe failed; no rewrite" >&2; exit 2; }
     git -C "$REPO_ROOT" merge-base --is-ancestor "$CHAIN_BOUNDARY" HEAD 2>/dev/null || { echo "NEEDS_HUMAN: chain boundary $CHAIN_BOUNDARY is not an ancestor of HEAD" >&2; exit 2; }
     [[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]] || { echo "NEEDS_HUMAN: working tree not clean; commit or stash before the merged-parent rewrite" >&2; exit 2; }
