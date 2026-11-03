@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-315-gitlab-merge-requests-in-the-ship-loop",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-11-03T12:28:29.875489Z",
   "created_at": "2026-11-03T10:32:10.667825Z",
   "default_impl": null,
   "default_review": null,
@@ -277,5 +277,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-11-03T12:24:59.592394Z"
+  "updated_at": "2026-11-03T12:28:29.875489Z"
 }
