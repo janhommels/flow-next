@@ -37,7 +37,10 @@ tracker restrictions; never widen the target.
    for unfinished work; land reads matching specs and their closure at the PR
    head itself. A forge-confirmed MERGED PR ends the run with its merge commit,
    without requiring a surviving head branch or creating a successor PR.
-3. Invoke `$flow-next-land <PR> <current authorization>` by reading and following its SKILL.md,
+3. A GitLab merge request is bound and reported, never handed to land, which reads
+   GitHub pull requests only: the run stops at the open merge request, and a merge
+   destination stops `NEEDS_HUMAN` naming it (merge it on GitLab). Otherwise,
+   invoke `$flow-next-land <PR> <current authorization>` by reading and following its SKILL.md,
    passing the exact PR URL and current consent with restrictions as ordinary
    arguments. For example, `$flow-next-land https://github.com/owner/repo/pull/42
    The current --until=merge invocation authorizes convergence and merge of

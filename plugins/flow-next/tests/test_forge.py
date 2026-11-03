@@ -129,6 +129,12 @@ class GitlabRowsTests(unittest.TestCase):
         (rows, _), _ = self.rows([{"iid": "x"}])
         self.assertIsNone(rows)
 
+    def test_open_lists_opened_and_locked(self):
+        (rows, _), calls = self.rows([mr(1)], [mr(2, "locked")], head="b", state="open")
+        self.assertEqual([r["number"] for r in rows], [1, 2])
+        self.assertIn("state=opened", calls[0][-1])
+        self.assertIn("state=locked", calls[1][-1])
+
     def test_one_mr_by_number(self):
         (rows, _), calls = self.rows(mr(7, "merged"), number=7)
         self.assertEqual(rows[0]["state"], "MERGED")
@@ -189,6 +195,69 @@ class PlainOutputTests(unittest.TestCase):
                 self.assertRaises(SystemExit):
             f.cmd_forge_mr_list(SimpleNamespace(head="", number=None, state="open", limit=100, json=True))
         self.assertIn("--head names no branch", out.getvalue())
+
+
+class ProbeOrderTests(unittest.TestCase):
+    """The route probe asks gh exactly as on GitHub; GitLab is only consulted around it."""
+
+    def probe(self, origin, *, gh, glab_ok=False, glab_rows=()):
+        calls = []
+
+        def run(argv, **_):
+            calls.append(argv)
+            if argv[:3] == ["git", "remote", "get-url"]:
+                return done(origin + "\n")
+            if argv[:3] == ["gh", "pr", "list"]:
+                if gh == "missing":
+                    raise FileNotFoundError("gh")
+                return done(json.dumps([]) if gh == "ok" else "", returncode=0 if gh == "ok" else 1,
+                            stderr="" if gh == "ok" else "none of the git remotes configured for this repository point to a known GitHub host.")
+            if argv[:3] == ["gh", "auth", "token"]:
+                return done(returncode=1)
+            if argv[:3] == ["glab", "auth", "status"]:
+                return done(returncode=0 if glab_ok else 1)
+            if argv[:2] == ["glab", "api"]:
+                return done(json.dumps(list(glab_rows)))
+            raise AssertionError(argv)
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            body = repo / "spec.md"
+            body.write_text("Implement feature", encoding="utf-8")
+            with patch.object(f, "get_config", return_value=True), patch.object(f, "get_repo_root", return_value=repo), \
+                    patch.object(f, "get_flow_dir", return_value=repo), \
+                    patch.object(f, "resolve_spec_id_arg", return_value="fn-1-feature"), \
+                    patch.object(f, "load_json_or_exit", return_value={"title": "F", "status": "open", "branch_name": "fn-1-feature"}), \
+                    patch.object(f, "normalize_epic", side_effect=lambda x: x), \
+                    patch.object(f, "find_spec_md_path", return_value=body), \
+                    patch.object(f.TaskInventory, "load", return_value=SimpleNamespace(by_spec={})), \
+                    patch.object(f, "judge_startable_target", return_value=None), \
+                    patch.object(f.subprocess, "run", side_effect=run):
+                state = f.judge_route_state({}, "fn-1-feature")
+        return state, [c[:3] for c in calls if c[0] != "git"]
+
+    def test_enterprise_github_runs_only_the_gh_listing(self):
+        state, calls = self.probe("https://ghe.corp/o/r.git", gh="ok")
+        self.assertEqual(calls, [["gh", "pr", "list"]])  # no auth probe, no glab
+        self.assertFalse(state["pr_exists"])
+
+    def test_self_managed_gitlab_is_read_after_gh_sees_no_github_host(self):
+        state, calls = self.probe("https://gitlab.example.com/g/p.git", gh="no_forge", glab_ok=True,
+                                  glab_rows=[mr(3, branch="fn-1-feature")])
+        self.assertIn(["glab", "api", "--hostname"], calls)
+        self.assertTrue(state["pr_exists"])
+        self.assertEqual(state["pr_ref"]["number"], 3)
+
+    def test_gitlab_com_skips_gh_and_missing_gh_still_reaches_gitlab(self):
+        state, calls = self.probe("https://gitlab.com/g/p.git", gh="ok", glab_rows=[])
+        self.assertNotIn(["gh", "pr", "list"], calls)
+        self.assertFalse(state["pr_exists"])
+        state, _ = self.probe("https://gitlab.example.com/g/p.git", gh="missing", glab_ok=True, glab_rows=[])
+        self.assertFalse(state["pr_exists"])
+
+    def test_unknown_host_keeps_no_forge(self):
+        state, calls = self.probe("https://git.example.com/g/p.git", gh="no_forge")
+        self.assertFalse(state["pr_exists"])
+        self.assertNotIn(["glab", "api", "--hostname"], calls)
 
 
 class MrWriteTests(unittest.TestCase):

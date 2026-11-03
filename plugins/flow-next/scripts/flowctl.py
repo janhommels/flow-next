@@ -23628,11 +23628,12 @@ def _forge_cli_ok(argv: list, repo: Path) -> bool:
         return False
 
 
-def detect_forge(repo: Path) -> dict:
+def detect_forge(repo: Path, *, ask_clis: bool = True) -> dict:
     """The forge serving `origin`: github (github.com or a host gh is logged in to),
     gitlab (gitlab.com or a host glab is logged in to), else None.
 
-    make-pr's shell and the route and pilot probes all read this one rule.
+    make-pr's shell and the route and pilot probes all read this one rule. With
+    `ask_clis=False` only the known hosts classify; any other host reads None.
     """
     try:
         proc = subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo,
@@ -23652,7 +23653,7 @@ def detect_forge(repo: Path) -> dict:
                          if line.startswith("hostname ") and len(line.split(None, 1)) == 2), "")
         host = resolved.lower() or host
     forge = _FORGE_HOSTS.get(host) if host else None
-    if host and forge is None:
+    if host and forge is None and ask_clis:
         if _forge_cli_ok(["gh", "auth", "token", "--hostname", host], repo):
             forge = "github"
         elif _forge_cli_ok(["glab", "auth", "status", "--hostname", host], repo):
@@ -23706,6 +23707,22 @@ def _gitlab_mrs_endpoint(forge: dict) -> str:
     return f"projects/{urllib.parse.quote(forge['project'] or '', safe='')}/merge_requests"
 
 
+def probe_gitlab_forge(repo: Path, gh_saw_no_forge: Optional[bool] = None) -> Optional[dict]:
+    """The GitLab forge for a PR probe, or None to keep gh's answer.
+
+    A probe asks gh exactly as on GitHub; only gitlab.com is known without a CLI.
+    Called before gh (`gh_saw_no_forge` None) it classifies known hosts only; called
+    after gh reported no GitHub host (or could not run) it applies the full rule.
+    """
+    if gh_saw_no_forge is None:
+        forge = detect_forge(repo, ask_clis=False)
+    elif gh_saw_no_forge:
+        forge = detect_forge(repo)
+    else:
+        return None
+    return forge if forge["forge"] == "gitlab" else None
+
+
 def gitlab_mr_rows(repo: Path, forge: dict, *, head: Optional[str] = None, state: str = "all",
                    number: Optional[int] = None, limit: int = 100) -> tuple[Optional[list], str]:
     """The project's own merge requests (forks are out of reach) as gh-shaped rows.
@@ -23718,22 +23735,24 @@ def gitlab_mr_rows(repo: Path, forge: dict, *, head: Optional[str] = None, state
         mr, failure = _glab_api(repo, forge["host"], f"{_gitlab_mrs_endpoint(forge)}/{number}")
         row = _gitlab_mr_row(mr)
         return ([row], "") if row else (None, failure or "unexpected glab output")
-    query = {"state": "opened" if state == "open" else state, "per_page": "100"}
-    if head:
-        query["source_branch"] = head
     rows: list = []
-    for page in range(1, limit // 100 + 2):
-        endpoint = f"{_gitlab_mrs_endpoint(forge)}?{urllib.parse.urlencode({**query, 'page': page})}"
-        listed, failure = _glab_api(repo, forge["host"], endpoint)
-        if not isinstance(listed, list):
-            return None, failure or "unexpected glab output"
-        for mr in listed:
-            row = _gitlab_mr_row(mr)
-            if row is None:
-                return None, "unexpected glab output"
-            if mr.get("source_project_id") in (None, mr.get("target_project_id")):
-                rows.append(row)
-        if len(listed) < 100 or len(rows) >= limit:
+    # Open is GitLab's opened plus locked (a merge in progress).
+    for gitlab_state in (["opened", "locked"] if state == "open" else [state]):
+        query = {"state": gitlab_state, "per_page": "100", **({"source_branch": head} if head else {})}
+        for page in range(1, limit // 100 + 2):
+            endpoint = f"{_gitlab_mrs_endpoint(forge)}?{urllib.parse.urlencode({**query, 'page': page})}"
+            listed, failure = _glab_api(repo, forge["host"], endpoint)
+            if not isinstance(listed, list):
+                return None, failure or "unexpected glab output"
+            for mr in listed:
+                row = _gitlab_mr_row(mr)
+                if row is None:
+                    return None, "unexpected glab output"
+                if mr.get("source_project_id") in (None, mr.get("target_project_id")):
+                    rows.append(row)
+            if len(listed) < 100 or len(rows) >= limit:
+                break
+        if len(rows) >= limit:
             break
     return rows[:limit], ""
 
@@ -24247,16 +24266,24 @@ def judge_route_state(state: dict, spec_id: str | None = None) -> dict:
             state["pr_exists"] = False
         else:
             try:
-                forge = detect_forge(repo)
-                if forge["forge"] == "gitlab":
+                forge = probe_gitlab_forge(repo)
+                if forge is None:
+                    try:
+                        probe = subprocess.run(
+                            ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,headRefOid,mergedAt", "--limit", "100"],
+                            cwd=repo, capture_output=True, text=True, timeout=10, check=False,
+                        )
+                        no_forge = probe.returncode != 0 and _gh_no_pr_forge(probe.stderr)
+                    except OSError:
+                        probe, no_forge = None, True  # no gh: origin may still be GitLab
+                    forge = probe_gitlab_forge(repo, no_forge)
+                    if forge is None and probe is None:
+                        raise OSError("gh not installed")
+                    if forge is None and no_forge:
+                        state["pr_exists"] = False
+                if forge is not None:
                     prs, _ = gitlab_mr_rows(repo, forge, head=branch, limit=100)
                 else:
-                    probe = subprocess.run(
-                        ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,headRefOid,mergedAt", "--limit", "100"],
-                        cwd=repo, capture_output=True, text=True, timeout=10, check=False,
-                    )
-                    if probe.returncode != 0 and _gh_no_pr_forge(probe.stderr):
-                        state["pr_exists"] = False
                     prs = json.loads(probe.stdout) if probe.returncode == 0 else None
                 if isinstance(prs, list) and len(prs) < 100 and all(
                     isinstance(pr, dict) and pr.get("state") in {"OPEN", "MERGED", "CLOSED"}
@@ -43899,24 +43926,34 @@ def pilot_snapshot(spec_arg: str | None = None) -> dict:
     path = _pilot_strikes_ledger_path()
     strikes = _pilot_strikes_read(path, use_json=True) if path else {}
     actor = get_actor()
-    forge = detect_forge(repo) if specs else {"forge": None}
+    # gh is asked exactly as on GitHub; GitLab is decided once, before or after it.
+    gitlab = {"forge": probe_gitlab_forge(repo) if specs else None, "settled": False}
+
+    def list_gitlab(selector: tuple, limit: int) -> Optional[list]:
+        # Same selectors as gh: ("--state", s) or ("--head", branch, "--state", s).
+        head = selector[selector.index("--head") + 1] if "--head" in selector else None
+        listed, _ = gitlab_mr_rows(repo, gitlab["forge"], head=head,
+                                   state=selector[selector.index("--state") + 1], limit=limit)
+        return listed if listed is not None and len(listed) < limit else None
 
     def list_prs(*selector: str, limit: int) -> Optional[list]:
-        if forge["forge"] == "gitlab":
-            # Same selectors as gh: ("--state", s) or ("--head", branch, "--state", s).
-            head = selector[selector.index("--head") + 1] if "--head" in selector else None
-            listed, _ = gitlab_mr_rows(repo, forge, head=head,
-                                       state=selector[selector.index("--state") + 1], limit=limit)
-            return listed if listed is not None and len(listed) < limit else None
+        if gitlab["forge"]:
+            return list_gitlab(selector, limit)
         try:
             probe = subprocess.run(
                 ["gh", "pr", "list", *selector, "--limit", str(limit), "--json",
                  "number,url,state,headRefName,headRefOid,mergedAt"],
                 cwd=repo, capture_output=True, text=True, timeout=10, check=False)
             if probe.returncode != 0 and _gh_no_pr_forge(probe.stderr):
-                return []
+                if not gitlab["settled"]:
+                    gitlab.update(forge=probe_gitlab_forge(repo, True), settled=True)
+                return list_gitlab(selector, limit) if gitlab["forge"] else []
             listed = json.loads(probe.stdout) if probe.returncode == 0 else None
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+        except OSError:
+            if not gitlab["settled"]:  # no gh: origin may still be GitLab
+                gitlab.update(forge=probe_gitlab_forge(repo, True), settled=True)
+            return list_gitlab(selector, limit) if gitlab["forge"] else None
+        except (ValueError, subprocess.TimeoutExpired):
             return None
         valid = isinstance(listed, list) and len(listed) < limit and all(
             isinstance(row, dict) and row.get("state") in {"OPEN", "MERGED", "CLOSED"}

@@ -166,7 +166,8 @@ class PilotSnapshotTests(unittest.TestCase):
         with patch.object(f, 'get_repo_root', return_value=self.repo), patch.object(f, 'get_flow_dir', return_value=self.repo / '.flow'), patch.object(f.subprocess, 'run', side_effect=run), patch.dict(os.environ, TYPESAFE_API_KEY=''), patch.object(f, '_pilot_strikes_ledger_path', return_value=self.ledger), patch.object(f, 'detect_forge', return_value=forge):
             result = f.pilot_snapshot(self.sid)
         self.assertIn('state=opened', glab_calls[0])
-        self.assertIn(f'source_branch={self.branch}', glab_calls[1])
+        self.assertIn('state=locked', glab_calls[1])
+        self.assertIn(f'source_branch={self.branch}', glab_calls[-1])
         return result
 
     def test_gitlab_merge_requests_are_observed_like_prs(self):

@@ -961,12 +961,13 @@ flowctl forge mr-update <iid> --body-file <f>
 or a host `glab` is logged in to, otherwise `null` (`none` without `--json`).
 An SSH host alias resolves through `ssh -G` first. The JSON carries `host` and
 the `project` path. make-pr, `judge --preset route` and `pilot snapshot` all
-use this one rule.
+use this one rule. The two probes ask `gh` first, exactly as on GitHub, and
+apply it only for gitlab.com or when `gh` reports no GitHub host or is missing.
 
 The `mr-*` verbs work only on a GitLab origin and go through `glab api`.
 `mr-list` returns the project's own merge requests (not forks) as `prs` rows
 with gh's field names: `number` (the iid), `url`, `state` (`OPEN` for opened
-or locked, `MERGED`, else `CLOSED`), `headRefName`, `baseRefName`,
+or locked, and `--state open` lists both; `MERGED`; else `CLOSED`), `headRefName`, `baseRefName`,
 `headRefOid`, `mergedAt`, `isDraft` and `mergeCommit`. A glab failure exits
 non-zero rather than reporting no merge requests, and so does a missing
 `glab`; the route and pilot probes report it as a probe failure. `mr-create` takes

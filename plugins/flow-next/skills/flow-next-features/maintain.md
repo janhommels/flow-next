@@ -243,9 +243,11 @@ At least one proven map or owned-harness correction, provenance refresh, or reti
 5. Commit (message per the entry gate's ship names; default `chore(features): maintain pass`), **push the branch with upstream tracking** (`git push -u origin <branch>` - `gh pr create` on an unpushed branch prompts, and a prompt in a non-interactive shell wedges the run), then open **one chore PR** directly through make-pr's create seam, which a GitLab origin fills with `$FLOWCTL forge mr-create` (a merge request) and any other host replaces with a command taking the same arguments and printing the PR URL:
 
 ```bash
-PR_CREATE_CMD="${FLOW_PR_CREATE_CMD:-gh pr create}"
-if [ -z "${FLOW_PR_CREATE_CMD:-}" ] && [ "$("$FLOWCTL" forge detect 2>/dev/null)" = gitlab ]; then PR_CREATE_CMD="$FLOWCTL forge mr-create"; fi
-PR_OUT="$($PR_CREATE_CMD --title "<commit message>" --body-file "$PR_BODY" --base "<default>" --head "<branch>")"
+if [ -z "${FLOW_PR_CREATE_CMD:-}" ] && [ "$("$FLOWCTL" forge detect 2>/dev/null)" = gitlab ]; then
+  PR_OUT="$("$FLOWCTL" forge mr-create --title "<commit message>" --body-file "$PR_BODY" --base "<default>" --head "<branch>")"
+else
+  PR_OUT="$(${FLOW_PR_CREATE_CMD:-gh pr create} --title "<commit message>" --body-file "$PR_BODY" --base "<default>" --head "<branch>")"
+fi
 printf '%s\n' "$PR_OUT" | grep -Eo 'https?://[^[:space:]]+/(pull|-/merge_requests)/[0-9]+' | tail -n1
 ```
 

@@ -87,8 +87,9 @@ class JudgeRouteTests(unittest.TestCase):
                                             stderr=NO_FORGE if status == "no_forge" else "")
                     with patch.dict(f.os.environ, {"TYPESAFE_API_KEY": "test-key"}), patch.object(f, "get_config", return_value=True), patch.object(f, "get_repo_root", return_value=repo), patch.object(f, "get_flow_dir", return_value=repo), patch.object(f, "resolve_spec_id_arg", return_value="fn-1-feature"), patch.object(f, "load_json_or_exit", return_value=spec_data), patch.object(f, "normalize_epic", side_effect=lambda x: x), patch.object(f, "find_spec_md_path", return_value=body), patch.object(f.TaskInventory, "load", return_value=SimpleNamespace(by_spec={})), patch.object(f.subprocess, "run", return_value=probe) as run:
                         state = f.judge_route_state({}, "fn-1-feature")
-                    self.assertIn("--state", run.call_args.args[0])
-                    self.assertIn("all", run.call_args.args[0])
+                    listing = next(c.args[0] for c in run.call_args_list if c.args[0][:3] == ["gh", "pr", "list"])
+                    self.assertIn("--state", listing)
+                    self.assertIn("all", listing)
                     self.assertEqual(state["pr_exists"], None if status in {"failed", "truncated", "ambiguous"} else status not in {"absent", "no_forge"})
                     if status == "no_forge":
                         self.assertNotIn("pr_probe_failed", f.judge_route(state))
