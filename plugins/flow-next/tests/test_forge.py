@@ -210,8 +210,10 @@ class ProbeOrderTests(unittest.TestCase):
             if argv[:3] == ["gh", "pr", "list"]:
                 if gh == "missing":
                     raise FileNotFoundError("gh")
-                return done(json.dumps([]) if gh == "ok" else "", returncode=0 if gh == "ok" else 1,
-                            stderr="" if gh == "ok" else "none of the git remotes configured for this repository point to a known GitHub host.")
+                stderr = {"ok": "", "no_login": "To get started with GitHub CLI, please run:  gh auth login"}.get(
+                    gh, "none of the git remotes configured for this repository point to a known GitHub host.")
+                return done(json.dumps([]) if gh == "ok" else "", returncode=0 if gh == "ok" else 4 if gh == "no_login" else 1,
+                            stderr=stderr)
             if argv[:3] == ["gh", "auth", "token"]:
                 return done(returncode=1)
             if argv[:3] == ["glab", "auth", "status"]:
@@ -253,6 +255,14 @@ class ProbeOrderTests(unittest.TestCase):
         self.assertFalse(state["pr_exists"])
         state, _ = self.probe("https://gitlab.example.com/g/p.git", gh="missing", glab_ok=True, glab_rows=[])
         self.assertFalse(state["pr_exists"])
+
+    def test_gh_logged_in_nowhere_still_reaches_self_managed_gitlab(self):
+        state, calls = self.probe("https://gitlab.example.com/g/p.git", gh="no_login", glab_ok=True,
+                                  glab_rows=[mr(5, branch="fn-1-feature")])
+        self.assertEqual(state["pr_ref"]["number"], 5)
+        # A GitHub origin whose gh is not logged in stays a probe failure, never "no PR".
+        state, _ = self.probe("https://ghe.corp/o/r.git", gh="no_login")
+        self.assertIsNone(state["pr_exists"])
 
     def test_unknown_host_keeps_no_forge(self):
         state, calls = self.probe("https://git.example.com/g/p.git", gh="no_forge")

@@ -959,7 +959,7 @@ or a host `glab` is logged in to, otherwise `null` (`none` without `--json`).
 An SSH host alias resolves through `ssh -G` first. The JSON carries `host` and
 the `project` path. make-pr, `judge --preset route` and `pilot snapshot` all
 use this one rule. The two probes ask `gh` first, exactly as on GitHub, and
-apply it only for gitlab.com or when `gh` reports no GitHub host or is missing.
+apply it only for gitlab.com or when `gh` fails or is missing.
 
 The `mr-*` verbs work only on a GitLab origin and go through `glab api`.
 `mr-list` returns the project's own merge requests (not forks) as `prs` rows

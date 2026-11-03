@@ -24276,7 +24276,8 @@ def judge_route_state(state: dict, spec_id: str | None = None) -> dict:
                         no_forge = probe.returncode != 0 and _gh_no_pr_forge(probe.stderr)
                     except OSError:
                         probe, no_forge = None, True  # no gh: origin may still be GitLab
-                    forge = probe_gitlab_forge(repo, no_forge)
+                    # Any gh failure (no GitHub host, or no login at all) may mean a GitLab origin.
+                    forge = probe_gitlab_forge(repo, probe is None or probe.returncode != 0)
                     if forge is None and probe is None:
                         raise OSError("gh not installed")
                     if forge is None and no_forge:
@@ -43944,10 +43945,14 @@ def pilot_snapshot(spec_arg: str | None = None) -> dict:
                 ["gh", "pr", "list", *selector, "--limit", str(limit), "--json",
                  "number,url,state,headRefName,headRefOid,mergedAt"],
                 cwd=repo, capture_output=True, text=True, timeout=10, check=False)
-            if probe.returncode != 0 and _gh_no_pr_forge(probe.stderr):
+            if probe.returncode != 0:
+                # Any gh failure (no GitHub host, or no login at all) may mean a GitLab origin.
                 if not gitlab["settled"]:
                     gitlab.update(forge=probe_gitlab_forge(repo, True), settled=True)
-                return list_gitlab(selector, limit) if gitlab["forge"] else []
+                if gitlab["forge"]:
+                    return list_gitlab(selector, limit)
+                if _gh_no_pr_forge(probe.stderr):
+                    return []
             listed = json.loads(probe.stdout) if probe.returncode == 0 else None
         except OSError:
             if not gitlab["settled"]:  # no gh: origin may still be GitLab
