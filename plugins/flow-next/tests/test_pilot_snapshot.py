@@ -151,8 +151,54 @@ class PilotSnapshotTests(unittest.TestCase):
         self.assertTrue(result['route']['pr_probe_failed'])
         self.assertNotIn('decision', result['route'])
 
+    def gitlab_snapshot(self, mrs, failed=False):
+        """A GitLab origin: merge requests come from glab api, gh never runs."""
+        real_run = subprocess.run
+        glab_calls = []
+        def run(command, *args, **kwargs):
+            self.assertNotEqual(command[0], 'gh')
+            if command[0] == 'glab':
+                glab_calls.append(command[-1])
+                listed = [m for m in mrs if 'source_branch=' in command[-1] or m['state'] == 'opened']
+                return SimpleNamespace(returncode=int(failed), stdout=json.dumps(listed), stderr='HTTP 502' if failed else '')
+            return real_run(command, *args, **kwargs)
+        forge = {'forge': 'gitlab', 'host': 'gitlab.example.com', 'project': 'group/proj'}
+        with patch.object(f, 'get_repo_root', return_value=self.repo), patch.object(f, 'get_flow_dir', return_value=self.repo / '.flow'), patch.object(f.subprocess, 'run', side_effect=run), patch.dict(os.environ, TYPESAFE_API_KEY=''), patch.object(f, '_pilot_strikes_ledger_path', return_value=self.ledger), patch.object(f, 'detect_forge', return_value=forge):
+            result = f.pilot_snapshot(self.sid)
+        self.assertIn('state=opened', glab_calls[0])
+        self.assertIn('state=locked', glab_calls[1])
+        self.assertIn(f'source_branch={self.branch}', glab_calls[-1])
+        return result
+
+    def test_gitlab_merge_requests_are_observed_like_prs(self):
+        mrs = [{'iid': 4, 'web_url': 'https://gitlab.example.com/group/proj/-/merge_requests/4', 'state': 'opened',
+                'source_branch': self.branch, 'target_branch': 'main', 'sha': 'abc', 'merged_at': None},
+               {'iid': 2, 'web_url': 'https://gitlab.example.com/group/proj/-/merge_requests/2', 'state': 'merged',
+                'source_branch': self.branch, 'target_branch': 'main', 'sha': 'def', 'merged_at': '2026-11-01'}]
+        result = self.gitlab_snapshot(mrs)
+        pr = result['selected']['pr']
+        self.assertEqual(pr['open']['number'], 4)
+        self.assertEqual(pr['merged_head'], 'def')
+        self.assertEqual(result['route']['decision']['value'], 'existing_pr_tail')
+        self.assertEqual([row['number'] for row in result['current_branch_prs']], [])
+        none = self.gitlab_snapshot([])
+        self.assertEqual(none['route']['decision']['value'], 'work_no_plan_default')
+
+    def test_gitlab_probe_failure_is_never_no_mr(self):
+        real_run = subprocess.run
+        def run(command, *args, **kwargs):
+            if command[0] == 'glab':
+                return SimpleNamespace(returncode=1, stdout='', stderr='HTTP 502')
+            return real_run(command, *args, **kwargs)
+        forge = {'forge': 'gitlab', 'host': 'gitlab.example.com', 'project': 'group/proj'}
+        with patch.object(f, 'get_repo_root', return_value=self.repo), patch.object(f, 'get_flow_dir', return_value=self.repo / '.flow'), patch.object(f.subprocess, 'run', side_effect=run), patch.dict(os.environ, TYPESAFE_API_KEY=''), patch.object(f, '_pilot_strikes_ledger_path', return_value=self.ledger), patch.object(f, 'detect_forge', return_value=forge):
+            result = f.pilot_snapshot(self.sid)
+        self.assertTrue(result['pr_listing_failed'])
+        self.assertTrue(result['selected']['pr']['probe_failed'])
+        self.assertTrue(result['route']['pr_probe_failed'])
+
     def test_non_github_origin_routes_from_the_lifecycle(self):
-        # #583: a GitLab origin has no PR forge; the route comes from the lifecycle.
+        # #583: an origin neither forge serves has no PRs; the route comes from the lifecycle.
         for stderr in ('none of the git remotes configured for this repository point to a known GitHub host.',
                        'no git remotes found'):
             with self.subTest(stderr=stderr):

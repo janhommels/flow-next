@@ -1,0 +1,281 @@
+{
+  "branch_name": "fn-315-gitlab-merge-requests-in-the-ship-loop",
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-11-03T12:28:29.875489Z",
+  "created_at": "2026-11-03T10:32:10.667825Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
+  "depends_on_epics": [],
+  "id": "fn-315-gitlab-merge-requests-in-the-ship-loop",
+  "impl_review_rounds": {
+    "fn-315-gitlab-merge-requests-in-the-ship-loop.1": 0
+  },
+  "next_task": 1,
+  "no_plan": true,
+  "plan_review_rounds": 0,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "115726d39ddba17d973b36c12fe2acd89f7933d7604633936e0105b7192bdaa0",
+      "backend": "codex",
+      "base_sha": "0d2a725f7ccc5a382ea7e5e07c93604b1870a25f",
+      "counter_kind": "impl",
+      "failure_class": "nonzero_exit",
+      "failure_message": "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.",
+      "finalized": {
+        "digest": "not_applicable",
+        "receipt": "not_applicable",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "d1aacb24d04a35e0f1ffd3b4242ef828a96a3ee2",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "outcome": "transport_failure",
+      "output_bytes": 360,
+      "output_sha256": "e3380f30766a4cdede0ae19439a238b152924aba724da211d720640b216c9626",
+      "reservation_id": "36ee134bdfb649d38776b5082625edb2",
+      "round_consumed": false,
+      "scope": "impl:fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "superseded_by": null,
+      "task": "fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "timestamp": "2026-11-03T11:46:51.420565Z",
+      "verdict": null
+    },
+    {
+      "artifact_sha256": "115726d39ddba17d973b36c12fe2acd89f7933d7604633936e0105b7192bdaa0",
+      "backend": "codex",
+      "base_sha": "0d2a725f7ccc5a382ea7e5e07c93604b1870a25f",
+      "counter_kind": "impl",
+      "failure_class": "nonzero_exit",
+      "failure_message": "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.",
+      "finalized": {
+        "digest": "not_applicable",
+        "receipt": "not_applicable",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "d1aacb24d04a35e0f1ffd3b4242ef828a96a3ee2",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "outcome": "transport_failure",
+      "output_bytes": 360,
+      "output_sha256": "e3380f30766a4cdede0ae19439a238b152924aba724da211d720640b216c9626",
+      "reservation_id": "b622d23340c14e21b0f610bc631385fd",
+      "round_consumed": false,
+      "scope": "impl:fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "superseded_by": null,
+      "task": "fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "timestamp": "2026-11-03T11:47:03.648279Z",
+      "verdict": null
+    },
+    {
+      "artifact_sha256": "115726d39ddba17d973b36c12fe2acd89f7933d7604633936e0105b7192bdaa0",
+      "backend": "claude",
+      "base_sha": "0d2a725f7ccc5a382ea7e5e07c93604b1870a25f",
+      "counter_kind": "impl",
+      "effort": "high",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "claude",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-13b7edfd1cf3a4fe0eb1d8d6fcd3a8b9",
+            "classification": "introduced",
+            "findingId": "finding-13b7edfd1cf3a4fe0eb1d8d6fcd3a8b9",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-4bcc80ae65df2492c1a092f1bdde575a",
+            "classification": "introduced",
+            "findingId": "finding-4bcc80ae65df2492c1a092f1bdde575a",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-7e2ead33e7fb142b153694a4a2c42278",
+            "classification": "introduced",
+            "findingId": "finding-7e2ead33e7fb142b153694a4a2c42278",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-6777851fb05b17835077020fccaf070e",
+            "classification": "introduced",
+            "findingId": "finding-6777851fb05b17835077020fccaf070e",
+            "firstSeenThisRound": true,
+            "severity": "P3",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-d404fb2f43498fb4119133f290ea845a",
+            "classification": "introduced",
+            "findingId": "finding-d404fb2f43498fb4119133f290ea845a",
+            "firstSeenThisRound": true,
+            "severity": "P3",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "d1aacb24d04a35e0f1ffd3b4242ef828a96a3ee2",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "claude-fable-5-1",
+      "outcome": "verdict",
+      "output_bytes": 4553,
+      "output_sha256": "0320bc77edd7bfedfa940ab85ad8d73fa9c9a905c48b90be93325fb7c0148c90",
+      "reservation_id": "30e94d1819944d6cb4350718a86d05b4",
+      "round_consumed": true,
+      "scope": "impl:fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "superseded_by": null,
+      "task": "fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "timestamp": "2026-11-03T11:56:29.462656Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "da4f770b68f74309dd0fc250312fefac2a098723c0a238e0f1799ac64fb45620",
+      "backend": "codex",
+      "base_sha": "0d2a725f7ccc5a382ea7e5e07c93604b1870a25f",
+      "counter_kind": "impl",
+      "effort": "high",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-e5355ae4c9a77dd83cd124c88832b65b",
+            "classification": "introduced",
+            "findingId": "finding-e5355ae4c9a77dd83cd124c88832b65b",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-6b45e8c5b41de37b6a96d095a2c71a59",
+            "classification": "introduced",
+            "findingId": "finding-6b45e8c5b41de37b6a96d095a2c71a59",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-ee81bc3e55d0060bcbba0bd6fbb89a3e",
+            "classification": "introduced",
+            "findingId": "finding-ee81bc3e55d0060bcbba0bd6fbb89a3e",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-1069fc862aaff398b4e9083cfbe336ff",
+            "classification": "introduced",
+            "findingId": "finding-1069fc862aaff398b4e9083cfbe336ff",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-bd0f25c73654bbdd9c651e9d4cf8287d",
+            "classification": "introduced",
+            "findingId": "finding-bd0f25c73654bbdd9c651e9d4cf8287d",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 2,
+      "head_sha": "9810046f45dfcd0028d7c7d783a90114c2967afb",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-terra",
+      "outcome": "verdict",
+      "output_bytes": 3977,
+      "output_sha256": "4b88656e784fcd323e3a68ac116cef02b194e562835e107461b30563d9d8b0fe",
+      "reservation_id": "8f21f7f6f20c4ec0a569d2beb4d8d941",
+      "round_consumed": true,
+      "scope": "impl:fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "superseded_by": null,
+      "task": "fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "timestamp": "2026-11-03T12:13:10.193784Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "867980ac27f8f6a1580a26ffcc761354d4b7f62d6b67d8ec01b54f18b6f1f9cd",
+      "backend": "claude",
+      "base_sha": "0d2a725f7ccc5a382ea7e5e07c93604b1870a25f",
+      "counter_kind": "impl",
+      "effort": "high",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 2,
+      "head_sha": "0797ac797bb1294e7443b285ba43dbb1c1b359b8",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "claude-fable-5-1",
+      "outcome": "verdict",
+      "output_bytes": 4681,
+      "output_sha256": "481f2d55a19e592acc9ce4ea64ff4701e6f5e44ab4bd577a69b3382b071c614f",
+      "reservation_id": "50d78befeb7a4ef7bfc84d849db15353",
+      "round_consumed": true,
+      "scope": "impl:fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "superseded_by": null,
+      "task": "fn-315-gitlab-merge-requests-in-the-ship-loop.1",
+      "timestamp": "2026-11-03T12:24:59.560751Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-315-gitlab-merge-requests-in-the-ship-loop.1": 3
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-315-gitlab-merge-requests-in-the-ship-loop.1": 0
+  },
+  "spec_path": ".flow/specs/fn-315-gitlab-merge-requests-in-the-ship-loop.md",
+  "status": "done",
+  "title": "GitLab merge requests in the ship loop: forge detection, make-pr and flow --auto",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-11-03T12:31:01.425433Z"
+}

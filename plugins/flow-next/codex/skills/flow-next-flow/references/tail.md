@@ -23,6 +23,9 @@ tracker restrictions; never widen the target.
 1. Resolve the exact repository and PR from the spec's `branch_name`, make-pr
    output and fresh `gh pr list --head <branch> --state all` observations.
    Confirm with `gh pr view <PR> --json url,number,state,headRefName,baseRefName,headRefOid,mergeCommit`.
+   On a GitLab origin (`$FLOWCTL forge detect` reports `gitlab`) the PR is a merge request:
+   list with `$FLOWCTL forge mr-list --head <branch> --state all --json` and confirm with
+   `$FLOWCTL forge mr-list --number <iid> --json`; its rows carry the same field names.
    Multiple plausible targets, failed/truncated probes or conflicting identity
    stop `NEEDS_HUMAN`. Bind the PR once; a missing or closed-unmerged target
    stops and is never replaced or reopened. A goal run binds each child's PR on its
@@ -32,9 +35,12 @@ tracker restrictions; never widen the target.
 2. An OPEN PR routes to the landing offer or authorized dispatch even if its
    local spec is closed or no longer ready. Keep existing build/review/QA gates
    for unfinished work; land reads matching specs and their closure at the PR
-   head itself. A GitHub-confirmed MERGED PR ends the run with its merge commit,
+   head itself. A forge-confirmed MERGED PR ends the run with its merge commit,
    without requiring a surviving head branch or creating a successor PR.
-3. Invoke `$flow-next-land <PR> <current authorization>` by reading and following its SKILL.md,
+3. A GitLab merge request is bound and reported, never handed to land, which reads
+   GitHub pull requests only: the run stops at the open merge request, and a merge
+   destination stops `NEEDS_HUMAN` naming it (merge it on GitLab). Otherwise,
+   invoke `$flow-next-land <PR> <current authorization>` by reading and following its SKILL.md,
    passing the exact PR URL and current consent with restrictions as ordinary
    arguments. For example, `$flow-next-land https://github.com/owner/repo/pull/42
    The current --until=merge invocation authorizes convergence and merge of
@@ -48,7 +54,8 @@ Land invokes no driver; its merge gates remain authoritative.
 
 ## Observe the result and continue
 
-After each run, re-read the exact PR with `gh pr view`. Echo the original
+After each run, re-read the exact PR with `gh pr view` (`$FLOWCTL forge mr-list --number <iid> --json`
+on GitLab). Echo the original
 `LAND_VERDICT` as evidence and report PR identity, head/state, confirmed merge
 commit and any tracker failure from land's reason. A sub-skill's success text
 is not verification. A failed or mismatched probe stops `NEEDS_HUMAN`.

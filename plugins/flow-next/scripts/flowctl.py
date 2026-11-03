@@ -23587,6 +23587,239 @@ def _gh_no_pr_forge(stderr: Optional[str]) -> bool:
     return any(marker in (stderr or "") for marker in _GH_NO_PR_FORGE_MARKERS)
 
 
+# --- Forge: which code host serves `origin`, observed per run and never stored. ---
+
+_FORGE_HOSTS = {"github.com": "github", "ssh.github.com": "github", "gitlab.com": "gitlab"}
+# GitLab `opened` and `locked` are open; every other state is not.
+_GITLAB_MR_STATES = {"opened": "OPEN", "locked": "OPEN", "merged": "MERGED"}
+
+
+def _print_lf(text: str) -> None:
+    """One line with LF only: shell callers compare `$(...)`, which keeps a Windows CR."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:  # an in-process capture translates nothing
+        print(text)
+        return
+    sys.stdout.flush()
+    buffer.write((text + "\n").encode("utf-8"))
+    buffer.flush()
+
+
+def _remote_host_path(url: str) -> tuple[Optional[str], Optional[str], bool]:
+    """(host, project path, is-ssh) of a git remote URL; host is None for a local path."""
+    match = re.match(r"^([a-z][a-z0-9+.-]*)://(?:[^@/]*@)?([^/:]+)(?::\d*)?/(.*)$", url, re.I)
+    if match:
+        host, path, ssh = match.group(2), match.group(3), "ssh" in match.group(1).lower()
+    else:
+        match = re.match(r"^(?:[^@/]+@)?([^/:]+):(?!/)(.+)$", url)
+        if not match or len(match.group(1)) == 1:  # C:\repo is a path, not host:path
+            return None, None, False
+        host, path, ssh = match.group(1), match.group(2), True
+    path = path.strip("/")
+    path = path[:-4] if path.endswith(".git") else path
+    return host.lower(), path or None, ssh
+
+
+def _forge_cli_ok(argv: list, repo: Path) -> bool:
+    try:
+        return subprocess.run(argv, cwd=repo, capture_output=True, text=True,
+                              timeout=20, check=False).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def detect_forge(repo: Path, *, ask_clis: bool = True) -> dict:
+    """The forge serving `origin`: github (github.com or a host gh is logged in to),
+    gitlab (gitlab.com or a host glab is logged in to), else None.
+
+    make-pr's shell and the route and pilot probes all read this one rule. With
+    `ask_clis=False` only the known hosts classify; any other host reads None.
+    """
+    try:
+        proc = subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo,
+                              capture_output=True, text=True, timeout=10, check=False)
+        url = proc.stdout.strip() if proc.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        url = ""
+    host, project, ssh = _remote_host_path(url) if url else (None, None, False)
+    if host and ssh and host not in _FORGE_HOSTS:
+        # An SSH host alias resolves through ssh -G, as git and gh resolve it.
+        try:
+            config = subprocess.run(["ssh", "-G", host], capture_output=True, text=True,
+                                    timeout=10, check=False).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            config = ""
+        resolved = next((line.split(None, 1)[1].strip() for line in config.splitlines()
+                         if line.startswith("hostname ") and len(line.split(None, 1)) == 2), "")
+        host = resolved.lower() or host
+    forge = _FORGE_HOSTS.get(host) if host else None
+    if host and forge is None and ask_clis:
+        checks = [("github", ["gh", "auth", "token", "--hostname", host]),
+                  ("gitlab", ["glab", "auth", "status", "--hostname", host])]
+        if os.environ.get("GH_ENTERPRISE_TOKEN") or os.environ.get("GITHUB_ENTERPRISE_TOKEN"):
+            # gh then reports that token for every host; glab checks its login against the server.
+            checks.reverse()
+        forge = next((name for name, argv in checks if _forge_cli_ok(argv, repo)), None)
+    return {"forge": forge, "host": host, "project": project}
+
+
+def _glab_api(repo: Path, host: str, endpoint: str, *, method: str = "GET",
+              body: Optional[dict] = None) -> tuple[Any, str]:
+    """One `glab api` call: (parsed JSON, "") or (None, reason)."""
+    argv = ["glab", "api", "--hostname", host]
+    if method != "GET":
+        argv += ["--method", method]
+    if body is not None:
+        # glab api sends no Content-Type with --input; GitLab rejects JSON without it.
+        argv += ["-H", "Content-Type: application/json", "--input", "-"]
+    argv.append(endpoint)
+    try:
+        proc = subprocess.run(argv, cwd=repo, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=30, check=False,
+                              input=None if body is None else json.dumps(body))
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, f"glab unreachable: {exc}"
+    out = proc.stdout or ""
+    if proc.returncode != 0:
+        detail = " ".join(((proc.stderr or "") + "\n" + out).split())
+        return None, detail or f"glab exit {proc.returncode}"
+    # glab prints its "Multiple config files found" warning to stdout ahead of the JSON.
+    starts = [i for i in (out.find("{"), out.find("[")) if i != -1]
+    try:
+        return json.loads(out[min(starts):] if starts else out), ""
+    except ValueError:
+        return None, "unreadable glab output"
+
+
+def _gitlab_mr_row(mr: Any) -> Optional[dict]:
+    """A GitLab merge request in gh's pull-request row shape, or None when unreadable."""
+    if not (isinstance(mr, dict) and isinstance(mr.get("iid"), int)
+            and isinstance(mr.get("web_url"), str) and isinstance(mr.get("source_branch"), str)):
+        return None
+    merge_commit = mr.get("merge_commit_sha") or mr.get("squash_commit_sha")
+    return {"number": mr["iid"], "url": mr["web_url"],
+            "state": _GITLAB_MR_STATES.get(mr.get("state"), "CLOSED"),
+            "headRefName": mr["source_branch"], "baseRefName": mr.get("target_branch"),
+            "headRefOid": mr.get("sha"), "mergedAt": mr.get("merged_at"),
+            "isDraft": bool(mr.get("draft") or mr.get("work_in_progress")),
+            "mergeCommit": {"oid": merge_commit} if merge_commit else None}
+
+
+def _gitlab_mrs_endpoint(forge: dict) -> str:
+    return f"projects/{urllib.parse.quote(forge['project'] or '', safe='')}/merge_requests"
+
+
+def probe_gitlab_forge(repo: Path, gh_saw_no_forge: Optional[bool] = None) -> Optional[dict]:
+    """The GitLab forge for a PR probe, or None to keep gh's answer.
+
+    A probe asks gh exactly as on GitHub; only gitlab.com is known without a CLI.
+    Called before gh (`gh_saw_no_forge` None) it classifies known hosts only; called
+    after gh reported no GitHub host (or could not run) it applies the full rule.
+    """
+    if gh_saw_no_forge is None:
+        forge = detect_forge(repo, ask_clis=False)
+    elif gh_saw_no_forge:
+        forge = detect_forge(repo)
+    else:
+        return None
+    return forge if forge["forge"] == "gitlab" else None
+
+
+def gitlab_mr_rows(repo: Path, forge: dict, *, head: Optional[str] = None, state: str = "all",
+                   number: Optional[int] = None, limit: int = 100) -> tuple[Optional[list], str]:
+    """The project's own merge requests (forks are out of reach) as gh-shaped rows.
+
+    Stops at `limit` rows, so a caller that requires fewer than `limit` sees truncation.
+    """
+    if not forge.get("host") or not forge.get("project"):
+        return None, "origin names no GitLab project"
+    if number is not None:
+        mr, failure = _glab_api(repo, forge["host"], f"{_gitlab_mrs_endpoint(forge)}/{number}")
+        row = _gitlab_mr_row(mr)
+        return ([row], "") if row else (None, failure or "unexpected glab output")
+    rows: list = []
+    # Open is GitLab's opened plus locked (a merge in progress).
+    for gitlab_state in (["opened", "locked"] if state == "open" else [state]):
+        query = {"state": gitlab_state, "per_page": "100", **({"source_branch": head} if head else {})}
+        for page in range(1, limit // 100 + 2):
+            endpoint = f"{_gitlab_mrs_endpoint(forge)}?{urllib.parse.urlencode({**query, 'page': page})}"
+            listed, failure = _glab_api(repo, forge["host"], endpoint)
+            if not isinstance(listed, list):
+                return None, failure or "unexpected glab output"
+            for mr in listed:
+                row = _gitlab_mr_row(mr)
+                if row is None:
+                    return None, "unexpected glab output"
+                if mr.get("source_project_id") in (None, mr.get("target_project_id")):
+                    rows.append(row)
+            if len(listed) < 100 or len(rows) >= limit:
+                break
+        if len(rows) >= limit:
+            break
+    return rows[:limit], ""
+
+
+def _forge_gitlab_or_exit(use_json: bool) -> dict:
+    forge = detect_forge(get_repo_root())
+    if forge["forge"] != "gitlab":
+        error_exit(f"origin host {forge['host'] or 'none'} is not a GitLab host glab can reach",
+                   use_json=use_json)
+    return forge
+
+
+def cmd_forge_detect(args: argparse.Namespace) -> None:
+    forge = detect_forge(get_repo_root())
+    if args.json:
+        json_output(forge)
+    else:
+        _print_lf(forge["forge"] or "none")
+
+
+def cmd_forge_mr_list(args: argparse.Namespace) -> None:
+    if args.head is not None and not args.head.strip():
+        # An empty source branch (a detached HEAD) would list every merge request.
+        error_exit("--head names no branch", use_json=args.json)
+    forge = _forge_gitlab_or_exit(args.json)
+    rows, failure = gitlab_mr_rows(get_repo_root(), forge, head=args.head, state=args.state,
+                                   number=args.number, limit=args.limit)
+    if rows is None:
+        error_exit(f"merge request lookup failed: {failure}", use_json=args.json)
+    json_output({"forge": "gitlab", "prs": rows})
+
+
+def _read_body_file(path: str, use_json: bool) -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        error_exit(f"cannot read body file {path}: {exc}", use_json=use_json)
+    return ""
+
+
+def cmd_forge_mr_create(args: argparse.Namespace) -> None:
+    """Open a merge request; prints its URL, as `gh pr create` prints the PR URL."""
+    forge = _forge_gitlab_or_exit(False)
+    payload = {"source_branch": args.head, "target_branch": args.base,
+               "title": f"Draft: {args.title}" if args.draft else args.title,
+               "description": _read_body_file(args.body_file, False)}
+    mr, failure = _glab_api(get_repo_root(), forge["host"], _gitlab_mrs_endpoint(forge),
+                            method="POST", body=payload)
+    row = _gitlab_mr_row(mr)
+    if row is None:
+        error_exit(f"merge request create failed: {failure or 'unexpected glab output'}", use_json=False)
+    _print_lf(row["url"])
+
+
+def cmd_forge_mr_update(args: argparse.Namespace) -> None:
+    """Replace a merge request's description; prints its URL."""
+    forge = _forge_gitlab_or_exit(False)
+    mr, failure = _glab_api(get_repo_root(), forge["host"], f"{_gitlab_mrs_endpoint(forge)}/{args.number}",
+                            method="PUT", body={"description": _read_body_file(args.body_file, False)})
+    row = _gitlab_mr_row(mr)
+    if row is None:
+        error_exit(f"merge request update failed: {failure or 'unexpected glab output'}", use_json=False)
+    _print_lf(row["url"])
+
+
 def _gh_pr_rows(head: str, repo: Path) -> tuple[Optional[list], str]:
     """All PRs with head branch `head`, or (None, reason) when the forge cannot be read."""
     try:
@@ -24035,13 +24268,26 @@ def judge_route_state(state: dict, spec_id: str | None = None) -> dict:
             state["pr_exists"] = False
         else:
             try:
-                probe = subprocess.run(
-                    ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,headRefOid,mergedAt", "--limit", "100"],
-                    cwd=repo, capture_output=True, text=True, timeout=10, check=False,
-                )
-                if probe.returncode != 0 and _gh_no_pr_forge(probe.stderr):
-                    state["pr_exists"] = False
-                prs = json.loads(probe.stdout) if probe.returncode == 0 else None
+                forge = probe_gitlab_forge(repo)
+                if forge is None:
+                    try:
+                        probe = subprocess.run(
+                            ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,headRefOid,mergedAt", "--limit", "100"],
+                            cwd=repo, capture_output=True, text=True, timeout=10, check=False,
+                        )
+                        no_forge = probe.returncode != 0 and _gh_no_pr_forge(probe.stderr)
+                    except OSError:
+                        probe, no_forge = None, True  # no gh: origin may still be GitLab
+                    # Any gh failure (no GitHub host, or no login at all) may mean a GitLab origin.
+                    forge = probe_gitlab_forge(repo, probe is None or probe.returncode != 0)
+                    if forge is None and probe is None:
+                        raise OSError("gh not installed")
+                    if forge is None and no_forge:
+                        state["pr_exists"] = False
+                if forge is not None:
+                    prs, _ = gitlab_mr_rows(repo, forge, head=branch, limit=100)
+                else:
+                    prs = json.loads(probe.stdout) if probe.returncode == 0 else None
                 if isinstance(prs, list) and len(prs) < 100 and all(
                     isinstance(pr, dict) and pr.get("state") in {"OPEN", "MERGED", "CLOSED"}
                     and isinstance(pr.get("number"), int) and isinstance(pr.get("url"), str)
@@ -43683,16 +43929,38 @@ def pilot_snapshot(spec_arg: str | None = None) -> dict:
     path = _pilot_strikes_ledger_path()
     strikes = _pilot_strikes_read(path, use_json=True) if path else {}
     actor = get_actor()
+    # gh is asked exactly as on GitHub; GitLab is decided once, before or after it.
+    gitlab = {"forge": probe_gitlab_forge(repo) if specs else None, "settled": False}
+
+    def list_gitlab(selector: tuple, limit: int) -> Optional[list]:
+        # Same selectors as gh: ("--state", s) or ("--head", branch, "--state", s).
+        head = selector[selector.index("--head") + 1] if "--head" in selector else None
+        listed, _ = gitlab_mr_rows(repo, gitlab["forge"], head=head,
+                                   state=selector[selector.index("--state") + 1], limit=limit)
+        return listed if listed is not None and len(listed) < limit else None
+
     def list_prs(*selector: str, limit: int) -> Optional[list]:
+        if gitlab["forge"]:
+            return list_gitlab(selector, limit)
         try:
             probe = subprocess.run(
                 ["gh", "pr", "list", *selector, "--limit", str(limit), "--json",
                  "number,url,state,headRefName,headRefOid,mergedAt"],
                 cwd=repo, capture_output=True, text=True, timeout=10, check=False)
-            if probe.returncode != 0 and _gh_no_pr_forge(probe.stderr):
-                return []
+            if probe.returncode != 0:
+                # Any gh failure (no GitHub host, or no login at all) may mean a GitLab origin.
+                if not gitlab["settled"]:
+                    gitlab.update(forge=probe_gitlab_forge(repo, True), settled=True)
+                if gitlab["forge"]:
+                    return list_gitlab(selector, limit)
+                if _gh_no_pr_forge(probe.stderr):
+                    return []
             listed = json.loads(probe.stdout) if probe.returncode == 0 else None
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+        except OSError:
+            if not gitlab["settled"]:  # no gh: origin may still be GitLab
+                gitlab.update(forge=probe_gitlab_forge(repo, True), settled=True)
+            return list_gitlab(selector, limit) if gitlab["forge"] else None
+        except (ValueError, subprocess.TimeoutExpired):
             return None
         valid = isinstance(listed, list) and len(listed) < limit and all(
             isinstance(row, dict) and row.get("state") in {"OPEN", "MERGED", "CLOSED"}
@@ -56325,6 +56593,31 @@ def main() -> None:
     # skill-owned ledger under the git common dir. Deliberately narrow: this is
     # the deterministic human-clear signal the pilot skill's escape clause
     # promises, not a general pilot control surface.
+    # forge: which code host serves origin, and GitLab merge requests through glab.
+    p_forge = subparsers.add_parser("forge", help="Detect origin's forge; GitLab merge requests via glab")
+    forge_sub = p_forge.add_subparsers(dest="forge_cmd", required=True)
+    p_forge_detect = forge_sub.add_parser("detect", help="Report github, gitlab or none for origin")
+    p_forge_detect.add_argument("--json", action="store_true")
+    p_forge_detect.set_defaults(func=cmd_forge_detect)
+    p_forge_mr_list = forge_sub.add_parser("mr-list", help="List merge requests as gh-shaped PR rows")
+    p_forge_mr_list.add_argument("--head", help="Source branch")
+    p_forge_mr_list.add_argument("--number", type=int, help="One merge request by iid")
+    p_forge_mr_list.add_argument("--state", choices=["open", "merged", "closed", "all"], default="all")
+    p_forge_mr_list.add_argument("--limit", type=int, default=100)
+    p_forge_mr_list.add_argument("--json", action="store_true")
+    p_forge_mr_list.set_defaults(func=cmd_forge_mr_list)
+    p_forge_mr_create = forge_sub.add_parser("mr-create", help="Open a merge request; prints its URL")
+    p_forge_mr_create.add_argument("--title", required=True)
+    p_forge_mr_create.add_argument("--body-file", required=True)
+    p_forge_mr_create.add_argument("--base", required=True, help="Target branch")
+    p_forge_mr_create.add_argument("--head", required=True, help="Source branch")
+    p_forge_mr_create.add_argument("--draft", action="store_true")
+    p_forge_mr_create.set_defaults(func=cmd_forge_mr_create)
+    p_forge_mr_update = forge_sub.add_parser("mr-update", help="Replace a merge request's description")
+    p_forge_mr_update.add_argument("number", type=int)
+    p_forge_mr_update.add_argument("--body-file", required=True)
+    p_forge_mr_update.set_defaults(func=cmd_forge_mr_update)
+
     p_pilot = subparsers.add_parser(
         "pilot", help="Pilot state helpers (strikes ledger)"
     )

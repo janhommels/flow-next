@@ -13,7 +13,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 TODAY="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
 
-`jq`, `git`, and `gh` must be on PATH when classification reaches the all-done PR branch.
+`jq`, `git`, and `gh` (`glab` when `$FLOWCTL forge detect` reports `gitlab`) must be on PATH when classification reaches the all-done PR branch. On a GitLab origin every PR read below is a merge request read through `$FLOWCTL forge mr-list`, whose rows carry gh's field names.
 
 Cold session or run start: `$FLOWCTL brief` first for session-scope orientation (one budgeted call).
 
@@ -444,11 +444,16 @@ For `make-pr`, advancement means a gh-confirmed OPEN PR URL for the branch. Ther
 
 ```bash
 PR_VERIFY_FAILED=0
-PR_VERIFY_JSON=$(gh pr list --head "$BRANCH_NAME" --state all --json url,state,number --limit 10 2>/dev/null) || PR_VERIFY_FAILED=1
+if [[ "$("$FLOWCTL" forge detect 2>/dev/null)" == gitlab ]]; then   # merge requests, in gh's row shape
+  PR_VERIFY_JSON=$("$FLOWCTL" forge mr-list --head "$BRANCH_NAME" --state all --limit 10 --json 2>/dev/null) || PR_VERIFY_FAILED=1
+  PR_VERIFY_JSON=$(printf '%s' "$PR_VERIFY_JSON" | jq -c '.prs' 2>/dev/null) || PR_VERIFY_FAILED=1
+else
+  PR_VERIFY_JSON=$(gh pr list --head "$BRANCH_NAME" --state all --json url,state,number --limit 10 2>/dev/null) || PR_VERIFY_FAILED=1
+fi
 OPEN_PR_URL=$(printf '%s\n' "${PR_VERIFY_JSON:-[]}" | jq -r 'first(.[] | select(.state == "OPEN") | .url) // empty' 2>/dev/null) || PR_VERIFY_FAILED=1   # jq is the status-bearing command: no trailing `head` to mask a parse error
 ```
 
-`PR_VERIFY_FAILED=1` (gh missing, unauthenticated, API error, or unparseable output) is crash-class: `PILOT_VERDICT=NEEDS_HUMAN spec=<id> stage=make-pr reason="gh probe failed at make-pr verify"`, no strike. Only a clean probe with no OPEN row is the healthy-no-advance path.
+`PR_VERIFY_FAILED=1` (gh or glab missing, unauthenticated, API error, or unparseable output) is crash-class: `PILOT_VERDICT=NEEDS_HUMAN spec=<id> stage=make-pr reason="gh probe failed at make-pr verify"` (`glab probe failed` on a GitLab origin), no strike. Only a clean probe with no OPEN row is the healthy-no-advance path.
 
 Echo the URL when present:
 
