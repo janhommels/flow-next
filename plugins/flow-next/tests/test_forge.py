@@ -84,6 +84,17 @@ class DetectForgeTests(unittest.TestCase):
         self.assertIsNone(self.detect("https://git.example.com/o/r.git")[0]["forge"])
         self.assertIsNone(self.detect("")[0]["forge"])
 
+    def test_enterprise_token_env_lets_glab_answer_first(self):
+        # With GH_ENTERPRISE_TOKEN set, gh reports a token for any host, a GitLab server included.
+        with patch.dict(f.os.environ, {"GH_ENTERPRISE_TOKEN": "t"}):
+            result, calls = self.detect("https://gitlab.example.com/g/p.git", gh_ok=True, glab_ok=True)
+            self.assertEqual(result["forge"], "gitlab")
+            self.assertEqual(self.detect("https://ghe.corp/o/r.git", gh_ok=True)[0]["forge"], "github")
+        with patch.dict(f.os.environ, {}, clear=False):
+            f.os.environ.pop("GH_ENTERPRISE_TOKEN", None)
+            f.os.environ.pop("GITHUB_ENTERPRISE_TOKEN", None)
+            self.assertEqual(self.detect("https://both.example/o/r", gh_ok=True, glab_ok=True)[0]["forge"], "github")
+
     def test_ssh_alias_resolves_before_classifying(self):
         result, _ = self.detect("gl-work:group/proj.git", ssh_host="gitlab.com")
         self.assertEqual(result["forge"], "gitlab")

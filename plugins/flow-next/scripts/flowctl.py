@@ -23654,10 +23654,12 @@ def detect_forge(repo: Path, *, ask_clis: bool = True) -> dict:
         host = resolved.lower() or host
     forge = _FORGE_HOSTS.get(host) if host else None
     if host and forge is None and ask_clis:
-        if _forge_cli_ok(["gh", "auth", "token", "--hostname", host], repo):
-            forge = "github"
-        elif _forge_cli_ok(["glab", "auth", "status", "--hostname", host], repo):
-            forge = "gitlab"
+        checks = [("github", ["gh", "auth", "token", "--hostname", host]),
+                  ("gitlab", ["glab", "auth", "status", "--hostname", host])]
+        if os.environ.get("GH_ENTERPRISE_TOKEN") or os.environ.get("GITHUB_ENTERPRISE_TOKEN"):
+            # gh then reports that token for every host; glab checks its login against the server.
+            checks.reverse()
+        forge = next((name for name, argv in checks if _forge_cli_ok(argv, repo)), None)
     return {"forge": forge, "host": host, "project": project}
 
 

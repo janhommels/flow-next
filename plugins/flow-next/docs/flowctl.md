@@ -956,7 +956,9 @@ flowctl forge mr-update <iid> --body-file <f>
 `forge detect` reads the forge from `origin` on every call and stores nothing:
 `github` for github.com or a host `gh` is logged in to, `gitlab` for gitlab.com
 or a host `glab` is logged in to, otherwise `null` (`none` without `--json`).
-An SSH host alias resolves through `ssh -G` first. The JSON carries `host` and
+An SSH host alias resolves through `ssh -G` first. With `GH_ENTERPRISE_TOKEN`
+or `GITHUB_ENTERPRISE_TOKEN` set, gh reports that token for every host, so
+`glab` is asked first for a host neither list names. The JSON carries `host` and
 the `project` path. make-pr, `judge --preset route` and `pilot snapshot` all
 use this one rule. The two probes ask `gh` first, exactly as on GitHub, and
 apply it only for gitlab.com or when `gh` fails or is missing.

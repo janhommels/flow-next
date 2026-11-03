@@ -104,7 +104,7 @@ for attempt in 1 2 3; do
     break
   fi
   case "$CREATE_OUT" in
-    *"Head sha can't be blank"*|*"No commits between"*|*"Source branch"*"does not exist"*)
+    *"Head sha can't be blank"*|*"No commits between"*|*'"source_branch":["does not exist"]'*)
       sleep $((attempt * 2))   # 2s, 4s, 6s — total worst-case 12s before bailing
       continue
       ;;

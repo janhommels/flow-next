@@ -105,6 +105,19 @@ esac
         self.assertNotIn("mr-create", calls)
         self.assertIn("RESULT=https://gitlab.example.com/group/proj/-/merge_requests/11", result.stdout)
 
+    def test_gitlab_missing_source_branch_is_retried(self):
+        # GitLab's measured answer right after a push it has not indexed yet.
+        self.gitlab_flowctl()
+        counter = self.root / "attempts"
+        cmd = (f'n=$(cat {counter} 2>/dev/null || echo 0); echo $((n+1)) > {counter}; '
+               'if [ "$n" = 0 ]; then echo \'Error: merge request create failed: glab: '
+               '{"message":{"source_branch":["does not exist"]}}\' >&2; exit 1; fi; '
+               'echo https://gitlab.example.com/group/proj/-/merge_requests/13; :')
+        result = self.run_script(UPDATE_MODE="0", FLOW_PR_CREATE_CMD=cmd)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("RESULT=https://gitlab.example.com/group/proj/-/merge_requests/13", result.stdout)
+        self.assertEqual(counter.read_text().strip(), "2")
+
     def test_gitlab_create_failure_exits_nonzero_with_the_error(self):
         self.gitlab_flowctl()
         result = self.run_script(UPDATE_MODE="0", FLOW_PR_CREATE_CMD="echo 'Error: 409 Conflict' >&2; false")
