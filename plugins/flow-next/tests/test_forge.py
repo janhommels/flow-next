@@ -2,6 +2,7 @@
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -163,12 +164,31 @@ class RouteProbeTests(unittest.TestCase):
         self.assertEqual(self.state([merged_row])["decision"]["value"], "existing_pr_tail")
         self.assertEqual(self.state([])["decision"]["value"], "all_done_make_pr")
         self.assertTrue(self.state(None)["pr_probe_failed"])
-        # Without glab nothing can be observed or opened: route as no forge, make-pr names the install.
-        self.assertEqual(self.state(None, f._GLAB_MISSING)["decision"]["value"], "all_done_make_pr")
 
-    def test_missing_glab_is_reported_distinctly(self):
+    def test_missing_glab_is_a_probe_failure_never_no_mr(self):
         with patch.object(f.subprocess, "run", side_effect=FileNotFoundError("glab")):
-            self.assertEqual(f.gitlab_mr_rows(Path("."), GITLAB, head="x"), (None, f._GLAB_MISSING))
+            rows, failure = f.gitlab_mr_rows(Path("."), GITLAB, head="x")
+        self.assertIsNone(rows)
+        self.assertIn("glab unreachable", failure)
+        self.assertTrue(self.state(None, "glab unreachable: not found")["pr_probe_failed"])
+
+
+class PlainOutputTests(unittest.TestCase):
+    """Shell callers compare `$(flowctl forge detect)`; a Windows CR would never match."""
+
+    def test_detect_prints_lf_only_through_a_pipe(self):
+        result = subprocess.run([sys.executable, str(SCRIPTS / "flowctl.py"), "forge", "detect"],
+                                cwd=SCRIPTS, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(b"\r", result.stdout)
+        self.assertTrue(result.stdout.endswith(b"\n"))
+
+    def test_empty_head_is_refused_not_listed_unfiltered(self):
+        out = io.StringIO()
+        with patch.object(f, "detect_forge", side_effect=AssertionError("no lookup")), redirect_stdout(out), \
+                self.assertRaises(SystemExit):
+            f.cmd_forge_mr_list(SimpleNamespace(head="", number=None, state="open", limit=100, json=True))
+        self.assertIn("--head names no branch", out.getvalue())
 
 
 class MrWriteTests(unittest.TestCase):

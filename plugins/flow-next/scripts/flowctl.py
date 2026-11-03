@@ -23592,9 +23592,17 @@ def _gh_no_pr_forge(stderr: Optional[str]) -> bool:
 _FORGE_HOSTS = {"github.com": "github", "ssh.github.com": "github", "gitlab.com": "gitlab"}
 # GitLab `opened` and `locked` are open; every other state is not.
 _GITLAB_MR_STATES = {"opened": "OPEN", "locked": "OPEN", "merged": "MERGED"}
-# Without glab no merge request can be read or opened: the route probes see no PR,
-# as they do for an origin no forge serves, and make-pr stops naming the install.
-_GLAB_MISSING = "glab not installed"
+
+
+def _print_lf(text: str) -> None:
+    """One line with LF only: shell callers compare `$(...)`, which keeps a Windows CR."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:  # an in-process capture translates nothing
+        print(text)
+        return
+    sys.stdout.flush()
+    buffer.write((text + "\n").encode("utf-8"))
+    buffer.flush()
 
 
 def _remote_host_path(url: str) -> tuple[Optional[str], Optional[str], bool]:
@@ -23666,8 +23674,6 @@ def _glab_api(repo: Path, host: str, endpoint: str, *, method: str = "GET",
         proc = subprocess.run(argv, cwd=repo, capture_output=True, text=True, encoding="utf-8",
                               errors="replace", timeout=30, check=False,
                               input=None if body is None else json.dumps(body))
-    except FileNotFoundError:
-        return None, _GLAB_MISSING
     except (OSError, subprocess.TimeoutExpired) as exc:
         return None, f"glab unreachable: {exc}"
     out = proc.stdout or ""
@@ -23745,10 +23751,13 @@ def cmd_forge_detect(args: argparse.Namespace) -> None:
     if args.json:
         json_output(forge)
     else:
-        print(forge["forge"] or "none")
+        _print_lf(forge["forge"] or "none")
 
 
 def cmd_forge_mr_list(args: argparse.Namespace) -> None:
+    if args.head is not None and not args.head.strip():
+        # An empty source branch (a detached HEAD) would list every merge request.
+        error_exit("--head names no branch", use_json=args.json)
     forge = _forge_gitlab_or_exit(args.json)
     rows, failure = gitlab_mr_rows(get_repo_root(), forge, head=args.head, state=args.state,
                                    number=args.number, limit=args.limit)
@@ -23776,7 +23785,7 @@ def cmd_forge_mr_create(args: argparse.Namespace) -> None:
     row = _gitlab_mr_row(mr)
     if row is None:
         error_exit(f"merge request create failed: {failure or 'unexpected glab output'}", use_json=False)
-    print(row["url"])
+    _print_lf(row["url"])
 
 
 def cmd_forge_mr_update(args: argparse.Namespace) -> None:
@@ -23787,7 +23796,7 @@ def cmd_forge_mr_update(args: argparse.Namespace) -> None:
     row = _gitlab_mr_row(mr)
     if row is None:
         error_exit(f"merge request update failed: {failure or 'unexpected glab output'}", use_json=False)
-    print(row["url"])
+    _print_lf(row["url"])
 
 
 def _gh_pr_rows(head: str, repo: Path) -> tuple[Optional[list], str]:
@@ -24240,8 +24249,7 @@ def judge_route_state(state: dict, spec_id: str | None = None) -> dict:
             try:
                 forge = detect_forge(repo)
                 if forge["forge"] == "gitlab":
-                    prs, failure = gitlab_mr_rows(repo, forge, head=branch, limit=100)
-                    prs = [] if failure == _GLAB_MISSING else prs
+                    prs, _ = gitlab_mr_rows(repo, forge, head=branch, limit=100)
                 else:
                     probe = subprocess.run(
                         ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,url,state,headRefOid,mergedAt", "--limit", "100"],
@@ -43897,10 +43905,8 @@ def pilot_snapshot(spec_arg: str | None = None) -> dict:
         if forge["forge"] == "gitlab":
             # Same selectors as gh: ("--state", s) or ("--head", branch, "--state", s).
             head = selector[selector.index("--head") + 1] if "--head" in selector else None
-            listed, failure = gitlab_mr_rows(repo, forge, head=head,
-                                             state=selector[selector.index("--state") + 1], limit=limit)
-            if failure == _GLAB_MISSING:
-                return []
+            listed, _ = gitlab_mr_rows(repo, forge, head=head,
+                                       state=selector[selector.index("--state") + 1], limit=limit)
             return listed if listed is not None and len(listed) < limit else None
         try:
             probe = subprocess.run(

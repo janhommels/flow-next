@@ -10,7 +10,8 @@ follow-ups) to a temporary body file, push, and run `gh pr create` with a one-li
 body file; add `--draft` for `--draft` or when the handoff lists an open item (a call left for
 the person, an open QA finding; follow-ups alone never draft), and `--base` when given. Under `--update`, run
 `gh pr edit` with the body file instead. When `$FLOWCTL forge detect` reports `gitlab`, open a merge
-request instead: `$FLOWCTL forge mr-create` takes the same `--title`, `--body-file`, `--draft`,
-`--base` (default: the default branch) and `--head` arguments, and `--update` runs
+request instead: `$FLOWCTL forge mr-create` takes the same `--title`, `--body-file` and `--draft`
+arguments, plus `--base` (the given base, else the default branch) and `--head`, both always
+passed; `--update` runs
 `$FLOWCTL forge mr-update <iid> --body-file <file>` (the iid from
 `$FLOWCTL forge mr-list --head <branch> --state open --json`). Print the PR URL.

@@ -968,9 +968,8 @@ The `mr-*` verbs work only on a GitLab origin and go through `glab api`.
 with gh's field names: `number` (the iid), `url`, `state` (`OPEN` for opened
 or locked, `MERGED`, else `CLOSED`), `headRefName`, `baseRefName`,
 `headRefOid`, `mergedAt`, `isDraft` and `mergeCommit`. A glab failure exits
-non-zero rather than reporting no merge requests. The route and pilot probes
-treat a GitLab origin without `glab` installed as one with no merge requests;
-make-pr then stops and names the install. `mr-create` takes
+non-zero rather than reporting no merge requests, and so does a missing
+`glab`; the route and pilot probes report it as a probe failure. `mr-create` takes
 `gh pr create`'s arguments, prefixes the title with `Draft:` for `--draft`, and
 prints the merge request URL; `mr-update` replaces the description and prints
 the URL.

@@ -453,7 +453,7 @@ fi
 OPEN_PR_URL=$(printf '%s\n' "${PR_VERIFY_JSON:-[]}" | jq -r 'first(.[] | select(.state == "OPEN") | .url) // empty' 2>/dev/null) || PR_VERIFY_FAILED=1   # jq is the status-bearing command: no trailing `head` to mask a parse error
 ```
 
-`PR_VERIFY_FAILED=1` (gh or glab missing, unauthenticated, API error, or unparseable output) is crash-class: `PILOT_VERDICT=NEEDS_HUMAN spec=<id> stage=make-pr reason="gh probe failed at make-pr verify"`, no strike. Only a clean probe with no OPEN row is the healthy-no-advance path.
+`PR_VERIFY_FAILED=1` (gh or glab missing, unauthenticated, API error, or unparseable output) is crash-class: `PILOT_VERDICT=NEEDS_HUMAN spec=<id> stage=make-pr reason="gh probe failed at make-pr verify"` (`glab probe failed` on a GitLab origin), no strike. Only a clean probe with no OPEN row is the healthy-no-advance path.
 
 Echo the URL when present:
 
