@@ -8,7 +8,7 @@
   "priority": null,
   "spec": "fn-315-gitlab-merge-requests-in-the-ship-loop",
   "spec_path": ".flow/tasks/fn-315-gitlab-merge-requests-in-the-ship-loop.1.md",
-  "status": "todo",
+  "status": "done",
   "title": "Implement GitLab merge requests in the ship loop",
   "updated_at": "2026-11-03T11:57:48.447434Z"
 }

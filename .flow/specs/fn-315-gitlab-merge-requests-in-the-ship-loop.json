@@ -264,7 +264,7 @@
     "impl:fn-315-gitlab-merge-requests-in-the-ship-loop.1": 0
   },
   "spec_path": ".flow/specs/fn-315-gitlab-merge-requests-in-the-ship-loop.md",
-  "status": "open",
+  "status": "done",
   "title": "GitLab merge requests in the ship loop: forge detection, make-pr and flow --auto",
   "tracker": {
     "baseHashFlow": null,
@@ -277,5 +277,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-11-03T12:28:29.875489Z"
+  "updated_at": "2026-11-03T12:31:01.425433Z"
 }
